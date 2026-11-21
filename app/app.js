@@ -10,6 +10,7 @@ const confirmCancelBtn = confirmDialog.querySelector('[data-testid="confirm-canc
 
 const ackedIds = new Set();
 const pendingIds = new Set();
+const rowMap = new Map();
 let currentIncidents = [];
 let confirmingId = null;
 let inFlight = false;
@@ -23,19 +24,64 @@ const timeFormatter = new Intl.DateTimeFormat(navigator.language || undefined, {
   hour12: false,
 });
 
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;');
-}
-
 function formatLocalTime(iso) {
   const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return escapeHtml(iso);
+  if (Number.isNaN(date.getTime())) return String(iso);
   return timeFormatter.format(date);
+}
+
+function updateRowAction(li, id) {
+  const actionSpan = li.querySelector('.action');
+  const isAcked = ackedIds.has(id);
+  const isPending = pendingIds.has(id);
+
+  if (isAcked) {
+    if (!actionSpan.querySelector('[data-testid="acked"]')) {
+      actionSpan.innerHTML = '<span data-testid="acked" class="acked">Acked</span>';
+    }
+  } else {
+    let btn = actionSpan.querySelector('[data-testid="ack"]');
+    if (!btn) {
+      btn = document.createElement('button');
+      btn.type = 'button';
+      btn.dataset.testid = 'ack';
+      btn.className = 'ack-btn';
+      btn.textContent = 'Ack';
+      actionSpan.innerHTML = '';
+      actionSpan.appendChild(btn);
+    }
+    btn.disabled = isPending;
+  }
+}
+
+function createRow(incident) {
+  const li = document.createElement('li');
+  li.dataset.testid = 'incident-row';
+  li.dataset.id = incident.id;
+  li.className = `row ${incident.severity}`;
+
+  const idSpan = document.createElement('span');
+  idSpan.className = 'id';
+  idSpan.textContent = incident.id;
+
+  const sevSpan = document.createElement('span');
+  sevSpan.className = 'sev';
+  sevSpan.textContent = incident.severity;
+
+  const whatSpan = document.createElement('span');
+  whatSpan.className = 'what';
+  whatSpan.textContent = `${incident.service} · ${incident.region} · ${incident.summary}`;
+
+  const timeEl = document.createElement('time');
+  timeEl.setAttribute('datetime', incident.openedAt);
+  timeEl.textContent = formatLocalTime(incident.openedAt);
+
+  const actionSpan = document.createElement('span');
+  actionSpan.className = 'action';
+
+  li.append(idSpan, sevSpan, whatSpan, timeEl, actionSpan);
+  updateRowAction(li, incident.id);
+  return li;
 }
 
 function openConfirm(id) {
@@ -64,30 +110,23 @@ function render(incidents) {
   if (incidents.length === 0) {
     empty.hidden = false;
     list.hidden = true;
-    list.innerHTML = '';
     return;
   }
 
   empty.hidden = true;
   list.hidden = false;
-  list.innerHTML = incidents
-    .map((i) => {
-      const id = escapeHtml(i.id);
-      const isAcked = ackedIds.has(i.id);
-      const isPending = pendingIds.has(i.id);
-      const action = isAcked
-        ? `<span data-testid="acked" class="acked">Acked</span>`
-        : `<button type="button" data-testid="ack" class="ack-btn"${isPending ? ' disabled' : ''}>Ack</button>`;
 
-      return `<li data-testid="incident-row" data-id="${id}" class="row ${escapeHtml(i.severity)}">
-        <span class="id">${id}</span>
-        <span class="sev">${escapeHtml(i.severity)}</span>
-        <span class="what">${escapeHtml(i.service)} · ${escapeHtml(i.region)} · ${escapeHtml(i.summary)}</span>
-        <time datetime="${escapeHtml(i.openedAt)}">${escapeHtml(formatLocalTime(i.openedAt))}</time>
-        <span class="action">${action}</span>
-      </li>`;
-    })
-    .join('');
+  for (let idx = 0; idx < incidents.length; idx++) {
+    const incident = incidents[idx];
+    let li = rowMap.get(incident.id);
+    if (!li) {
+      li = createRow(incident);
+      rowMap.set(incident.id, li);
+      list.insertBefore(li, list.children[idx] || null);
+    } else {
+      updateRowAction(li, incident.id);
+    }
+  }
 }
 
 list.addEventListener('click', (event) => {

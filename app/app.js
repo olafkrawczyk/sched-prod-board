@@ -3,10 +3,15 @@ import { fetchIncidents, ack } from './api.js';
 const loader = document.querySelector('[data-testid="loader"]');
 const empty = document.querySelector('[data-testid="empty"]');
 const list = document.querySelector('[data-testid="incident-list"]');
+const confirmDialog = document.querySelector('[data-testid="confirm"]');
+const confirmText = confirmDialog.querySelector('.confirm-text');
+const confirmAckBtn = confirmDialog.querySelector('[data-testid="confirm-ack"]');
+const confirmCancelBtn = confirmDialog.querySelector('[data-testid="confirm-cancel"]');
 
 const ackedIds = new Set();
 const pendingIds = new Set();
 let currentIncidents = [];
+let confirmingId = null;
 let inFlight = false;
 
 const timeFormatter = new Intl.DateTimeFormat(navigator.language || undefined, {
@@ -31,6 +36,22 @@ function formatLocalTime(iso) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return escapeHtml(iso);
   return timeFormatter.format(date);
+}
+
+function openConfirm(id) {
+  const incident = currentIncidents.find((i) => i.id === id);
+  confirmingId = id;
+  confirmText.textContent = incident
+    ? `Ack incident ${id} (${incident.service} · ${incident.summary})?`
+    : `Ack incident ${id}?`;
+  confirmAckBtn.disabled = false;
+  confirmDialog.hidden = false;
+  confirmAckBtn.focus();
+}
+
+function closeConfirm() {
+  confirmingId = null;
+  confirmDialog.hidden = true;
 }
 
 function render(incidents) {
@@ -69,21 +90,35 @@ function render(incidents) {
     .join('');
 }
 
-list.addEventListener('click', async (event) => {
+list.addEventListener('click', (event) => {
   const btn = event.target.closest('[data-testid="ack"]');
   if (!btn) return;
   const row = btn.closest('[data-testid="incident-row"]');
   if (!row) return;
   const id = row.dataset.id;
   if (!id || ackedIds.has(id) || pendingIds.has(id)) return;
+  openConfirm(id);
+});
+
+confirmCancelBtn.addEventListener('click', () => {
+  closeConfirm();
+});
+
+confirmAckBtn.addEventListener('click', async () => {
+  const id = confirmingId;
+  if (!id || ackedIds.has(id) || pendingIds.has(id)) {
+    closeConfirm();
+    return;
+  }
 
   pendingIds.add(id);
-  btn.disabled = true;
+  confirmAckBtn.disabled = true;
   try {
     await ack(id);
     ackedIds.add(id);
   } finally {
     pendingIds.delete(id);
+    closeConfirm();
     render(currentIncidents);
   }
 });
